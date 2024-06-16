@@ -1,0 +1,10 @@
+﻿@{
+    ViewData["Title"] = "Dosya İçeriği";
+    var jsonContent = Model as string;
+}
+
+<h1>Dosya İçeriği</h1>
+
+<pre>@jsonContent</pre>
+
+<a asp-action="Index">Geri Dön</a>
