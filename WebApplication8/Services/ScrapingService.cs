@@ -10,6 +10,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using EczaneScraper.Models;
 
 namespace EczaneScraper.Services
 {
@@ -59,37 +60,37 @@ namespace EczaneScraper.Services
             {
                 // e-Devlet nöbetçi eczane sayfasına git
                 driver.Navigate().GoToUrl("https://www.turkiye.gov.tr/saglik-titck-nobetci-eczane-sorgulama");
-                _logger.LogInformation($"Navigated to e-Devlet page for {il} on {tarih}");
+                _logger.LogInformation($"{il} ili için {tarih} tarihinde e-Devlet sayfasına gidildi");
 
                 // Sayfanın yüklenmesini bekle
                 WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
                 wait.Until(d => d.FindElement(By.Id("plakaKodu")));
-                _logger.LogInformation("Page loaded, selecting city...");
+                _logger.LogInformation("Sayfa yüklendi, şehir seçiliyor...");
 
                 // İl seçimini yap
                 var ilSelect = new SelectElement(driver.FindElement(By.Id("plakaKodu")));
                 ilSelect.SelectByText(il);
-                _logger.LogInformation($"Selected city {il}");
+                _logger.LogInformation($"{il} şehri seçildi");
 
                 // Tarih seçimini yap
                 wait.Until(d => d.FindElement(By.Id("nobetTarihi")));
                 var dateInput = driver.FindElement(By.Id("nobetTarihi"));
                 dateInput.Clear();
                 dateInput.SendKeys(tarih);
-                _logger.LogInformation($"Selected date {tarih}");
+                _logger.LogInformation($"{tarih} tarihi seçildi");
 
                 // Sorgula butonuna tıkla
                 var searchButton = driver.FindElement(By.CssSelector("input[type='submit'][value='Sorgula']"));
                 ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", searchButton);
-                _logger.LogInformation($"Clicked search button for {il} on {tarih}");
+                _logger.LogInformation("Sorgula butonuna tıklandı");
 
                 // Sonuçların yüklenmesini bekle
                 wait.Until(d => d.FindElement(By.CssSelector("table")));
-                _logger.LogInformation("Results loaded");
+                _logger.LogInformation("Sonuçlar yüklendi");
 
                 // Nöbetçi eczane bilgilerini çek
                 var eczaneler = driver.FindElements(By.CssSelector("table tbody tr"));
-                List<Pharmacy> pharmacies = new List<Pharmacy>();
+                List<Eczane> pharmacies = new List<Eczane>();
 
                 for (int i = 0; i < eczaneler.Count; i++)
                 {
@@ -105,7 +106,7 @@ namespace EczaneScraper.Services
                         // Harita sayfasına git ve bilgileri al
                         driver.Navigate().GoToUrl(locationUrl);
                         wait.Until(d => ((IJavaScriptExecutor)d).ExecuteScript("return typeof latti !== 'undefined' && typeof longi !== 'undefined';"));
-                        _logger.LogInformation("Navigated to map page and got location coordinates");
+                        _logger.LogInformation("Harita sayfasına gidildi ve konum koordinatları alındı");
 
                         // Harita sayfasındaki bilgileri al
                         var lat = (double)((IJavaScriptExecutor)driver).ExecuteScript("return latti;");
@@ -120,16 +121,16 @@ namespace EczaneScraper.Services
                             name = driver.FindElement(By.XPath("//dt[contains(text(), 'Adı')]/following-sibling::dd")).Text;
                             phone = driver.FindElement(By.XPath("//dt[contains(text(), 'Telefon Numarası')]/following-sibling::dd")).Text;
                             address = driver.FindElement(By.XPath("//dt[contains(text(), 'Adresi')]/following-sibling::dd")).Text;
-                            _logger.LogInformation($"Fetched details for pharmacy: {name}");
+                            _logger.LogInformation($"Eczane bilgileri alındı: {name}");
                         }
                         catch (NoSuchElementException ex)
                         {
-                            _logger.LogWarning($"Element not found for index {i}: {ex.Message}");
+                            _logger.LogWarning($"Element bulunamadı: {ex.Message}");
                         }
 
                         if (!string.IsNullOrEmpty(name))  // Eczane adının boş olmadığını kontrol et
                         {
-                            pharmacies.Add(new Pharmacy
+                            pharmacies.Add(new Eczane
                             {
                                 Name = name,
                                 District = il, // İlçe bilgisi eğer harita sayfasında yoksa, Ana sayfadaki bilgilere göre düzeltilmeli
@@ -137,6 +138,7 @@ namespace EczaneScraper.Services
                                 Address = address,
                                 Latitude = lat.ToString(),
                                 Longitude = lng.ToString(),
+                                Date = tarih
                             });
                         }
 
@@ -145,14 +147,14 @@ namespace EczaneScraper.Services
                     }
                     catch (NoSuchElementException ex)
                     {
-                        _logger.LogWarning($"Element not found for index {i}: {ex.Message}");
+                        _logger.LogWarning($"Element bulunamadı: {ex.Message}");
                     }
                 }
 
                 // JSON dosya adını oluştur
                 string directoryPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "eczane");
                 Directory.CreateDirectory(directoryPath); // Klasörü oluştur
-                string fileName = $"{il.ToLower()}{tarih.Replace("/", "")}.json";
+                string fileName = $"{il.ToUpper()}_{tarih.Replace("/", "")}.json";
                 string filePath = Path.Combine(directoryPath, fileName);
 
                 // JSON olarak kaydet
@@ -162,18 +164,8 @@ namespace EczaneScraper.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error scraping data for {il} on {tarih}: {ex.Message}");
+                _logger.LogError($"{il} ili için {tarih} tarihinde veri çekme hatası: {ex.Message}");
             }
-        }
-
-        public class Pharmacy
-        {
-            public string Name { get; set; }
-            public string District { get; set; }
-            public string Phone { get; set; }
-            public string Address { get; set; }
-            public string Latitude { get; set; }
-            public string Longitude { get; set; }
         }
     }
 }
