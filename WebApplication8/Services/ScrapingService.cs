@@ -17,16 +17,8 @@ namespace EczaneScraper.Services
     public class ScrapingService : BackgroundService
     {
         private readonly List<string> iller = new List<string>
-        {
-            "ADANA", "ADIYAMAN", "AFYONKARAHİSAR", "AĞRI", "AMASYA", "ANKARA", "ANTALYA", "ARTVİN", "AYDIN", "BALIKESİR",
-            "BİLECİK", "BİNGÖL", "BİTLİS", "BOLU", "BURDUR", "BURSA", "ÇANAKKALE", "ÇANKIRI", "ÇORUM", "DENİZLİ",
-            "DİYARBAKIR", "EDİRNE", "ELAZIĞ", "ERZİNCAN", "ERZURUM", "ESKİŞEHİR", "GAZİANTEP", "GİRESUN", "GÜMÜŞHANE",
-            "HAKKARİ", "HATAY", "ISPARTA", "MERSİN", "İSTANBUL", "İZMİR", "KARS", "KASTAMONU", "KAYSERİ", "KIRKLARELİ",
-            "KIRŞEHİR", "KOCAELİ", "KONYA", "KÜTAHYA", "MALATYA", "MANİSA", "KAHRAMANMARAŞ", "MARDİN", "MUĞLA", "MUŞ",
-            "NEVŞEHİR", "NİĞDE", "ORDU", "RİZE", "SAKARYA", "SAMSUN", "SİİRT", "SİNOP", "SİVAS", "TEKİRDAĞ",
-            "TOKAT", "TRABZON", "TUNCELİ", "ŞANLIURFA", "UŞAK", "VAN", "YOZGAT", "ZONGULDAK", "AKSARAY", "BAYBURT",
-            "KARAMAN", "KIRIKKALE", "BATMAN", "ŞIRNAK", "BARTIN", "ARDAHAN", "IĞDIR", "YALOVA", "KARABÜK", "KİLİS",
-            "OSMANİYE", "DÜZCE"
+        {"ADIYAMAN"
+
         };
 
         private readonly ILogger<ScrapingService> _logger;
@@ -40,6 +32,8 @@ namespace EczaneScraper.Services
         {
             var tarih = DateTime.Now.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture); // Bugünün tarihi
 
+            var scrapingTasks = new List<Task>();
+
             foreach (var il in iller)
             {
                 if (stoppingToken.IsCancellationRequested)
@@ -47,11 +41,16 @@ namespace EczaneScraper.Services
                     break;
                 }
 
-                using (IWebDriver driver = new ChromeDriver(@"C:\chromedriver"))
+                scrapingTasks.Add(Task.Run(() =>
                 {
-                    await ScrapeEczaneData(driver, il, tarih, stoppingToken);
-                }
+                    using (IWebDriver driver = new ChromeDriver(@"C:\chromedriver"))
+                    {
+                        ScrapeEczaneData(driver, il, tarih, stoppingToken).Wait();
+                    }
+                }));
             }
+
+            await Task.WhenAll(scrapingTasks);
         }
 
         private async Task ScrapeEczaneData(IWebDriver driver, string il, string tarih, CancellationToken stoppingToken)
