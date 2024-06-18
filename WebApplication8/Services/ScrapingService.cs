@@ -17,8 +17,16 @@ namespace EczaneScraper.Services
     public class ScrapingService : BackgroundService
     {
         private readonly List<string> iller = new List<string>
-        {"ADIYAMAN"
-
+        {
+            "ADANA", "ADIYAMAN", "AFYONKARAHİSAR", "AĞRI", "AMASYA", "ANKARA", "ANTALYA", "ARTVİN", "AYDIN", "BALIKESİR",
+            "BİLECİK", "BİNGÖL", "BİTLİS", "BOLU", "BURDUR", "BURSA", "ÇANAKKALE", "ÇANKIRI", "ÇORUM", "DENİZLİ",
+            "DİYARBAKIR", "EDİRNE", "ELAZIĞ", "ERZİNCAN", "ERZURUM", "ESKİŞEHİR", "GAZİANTEP", "GİRESUN", "GÜMÜŞHANE",
+            "HAKKARİ", "HATAY", "ISPARTA", "MERSİN", "İSTANBUL", "İZMİR", "KARS", "KASTAMONU", "KAYSERİ", "KIRKLARELİ",
+            "KIRŞEHİR", "KOCAELİ", "KONYA", "KÜTAHYA", "MALATYA", "MANİSA", "KAHRAMANMARAŞ", "MARDİN", "MUĞLA", "MUŞ",
+            "NEVŞEHİR", "NİĞDE", "ORDU", "RİZE", "SAKARYA", "SAMSUN", "SİİRT", "SİNOP", "SİVAS", "TEKİRDAĞ",
+            "TOKAT", "TRABZON", "TUNCELİ", "ŞANLIURFA", "UŞAK", "VAN", "YOZGAT", "ZONGULDAK", "AKSARAY", "BAYBURT",
+            "KARAMAN", "KIRIKKALE", "BATMAN", "ŞIRNAK", "BARTIN", "ARDAHAN", "IĞDIR", "YALOVA", "KARABÜK", "KİLİS",
+            "OSMANİYE", "DÜZCE"
         };
 
         private readonly ILogger<ScrapingService> _logger;
@@ -32,8 +40,6 @@ namespace EczaneScraper.Services
         {
             var tarih = DateTime.Now.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture); // Bugünün tarihi
 
-            var scrapingTasks = new List<Task>();
-
             foreach (var il in iller)
             {
                 if (stoppingToken.IsCancellationRequested)
@@ -41,23 +47,18 @@ namespace EczaneScraper.Services
                     break;
                 }
 
-                scrapingTasks.Add(Task.Run(() =>
+                using (IWebDriver driver = new ChromeDriver(@"C:\chromedriver"))
                 {
-                    using (IWebDriver driver = new ChromeDriver(@"C:\chromedriver"))
-                    {
-                        ScrapeEczaneData(driver, il, tarih, stoppingToken).Wait();
-                    }
-                }));
+                    await ScrapeEczaneData(driver, il, tarih, stoppingToken);
+                }
             }
-
-            await Task.WhenAll(scrapingTasks);
         }
 
         private async Task ScrapeEczaneData(IWebDriver driver, string il, string tarih, CancellationToken stoppingToken)
         {
             try
             {
-                //Eczane klasörü yoksa oluştur
+                // Eczane klasörü yoksa oluştur
                 string directoryPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "eczane");
                 if (!Directory.Exists(directoryPath))
                 {
@@ -65,7 +66,7 @@ namespace EczaneScraper.Services
                     _logger.LogInformation("Eczane klasörü oluşturuldu");
                 }
 
-                //Dosya yoksa oluştur
+                // Dosya yoksa oluştur
                 string fileName = $"{il.ToUpper()}_{tarih.Replace("/", "")}.json";
                 string filePath = Path.Combine(directoryPath, fileName);
                 if (!File.Exists(filePath))
@@ -99,70 +100,77 @@ namespace EczaneScraper.Services
                     _logger.LogInformation("Sorgula butonuna tıklandı");
 
                     // Sonuçların yüklenmesini bekle
-                    wait.Until(d => d.FindElement(By.CssSelector("table")));
-                    _logger.LogInformation("Sonuçlar yüklendi");
+                    try
+                    {
+                        wait.Until(d => d.FindElement(By.CssSelector("table, .warningContainer")));
+                        _logger.LogInformation("Sonuçlar yüklendi");
+                    }
+                    catch (WebDriverTimeoutException)
+                    {
+                        _logger.LogWarning($"{il} ili için sonuçlar yüklenemedi.");
+                        await File.WriteAllTextAsync(filePath, "[]");
+                        return;
+                    }
 
                     // Nöbetçi eczane bilgilerini çek
-                    var eczaneler = driver.FindElements(By.CssSelector("table tbody tr"));
+                    var warningElement = driver.FindElements(By.CssSelector(".warningContainer"));
                     List<Eczane> pharmacies = new List<Eczane>();
 
-                    for (int i = 0; i < eczaneler.Count; i++)
+                    if (warningElement.Count == 0)
                     {
-                        // Elementi her seferinde yeniden bul
-                        eczaneler = driver.FindElements(By.CssSelector("table tbody tr"));
-                        var eczane = eczaneler[i];
+                        var eczaneler = driver.FindElements(By.CssSelector("table tbody tr"));
 
-                        try
+                        for (int i = 0; i < eczaneler.Count; i++)
                         {
-                            var locationElement = eczane.FindElement(By.CssSelector("td[data-cell-order='4'] a"));
-                            var locationUrl = locationElement.GetAttribute("href");
+                            // Elementi her seferinde yeniden bul
+                            eczaneler = driver.FindElements(By.CssSelector("table tbody tr"));
+                            var eczane = eczaneler[i];
 
-                            // Harita sayfasına git ve bilgileri al
-                            driver.Navigate().GoToUrl(locationUrl);
-                            wait.Until(d => ((IJavaScriptExecutor)d).ExecuteScript("return typeof latti !== 'undefined' && typeof longi !== 'undefined';"));
-                            _logger.LogInformation("Harita sayfasına gidildi ve konum koordinatları alındı");
-
-                            // Harita sayfasındaki bilgileri al
-                            var lat = (double)((IJavaScriptExecutor)driver).ExecuteScript("return latti;");
-                            var lng = (double)((IJavaScriptExecutor)driver).ExecuteScript("return longi;");
-
-                            // Detay bilgilerini al
-                            string name = null;
-                            string phone = null;
-                            string address = null;
                             try
                             {
-                                name = driver.FindElement(By.XPath("//dt[contains(text(), 'Adı')]/following-sibling::dd")).Text;
-                                phone = driver.FindElement(By.XPath("//dt[contains(text(), 'Telefon Numarası')]/following-sibling::dd")).Text;
-                                address = driver.FindElement(By.XPath("//dt[contains(text(), 'Adresi')]/following-sibling::dd")).Text;
-                                _logger.LogInformation($"Eczane bilgileri alındı: {name}");
-                            }
-                            catch (NoSuchElementException ex)
-                            {
-                                _logger.LogWarning($"Element bulunamadı: {ex.Message}");
-                            }
+                                var locationElement = eczane.FindElement(By.CssSelector("td[data-cell-order='4'] a"));
+                                var locationUrl = locationElement.GetAttribute("href");
 
-                            if (!string.IsNullOrEmpty(name))  // Eczane adının boş olmadığını kontrol et
-                            {
+                                // Harita sayfasına git ve bilgileri al
+                                driver.Navigate().GoToUrl(locationUrl);
+                                wait.Until(d => ((IJavaScriptExecutor)d).ExecuteScript("return typeof latti !== 'undefined' && typeof longi !== 'undefined';"));
+                                _logger.LogInformation("Harita sayfasına gidildi ve konum koordinatları alındı");
+
+                                // Harita sayfasındaki bilgileri al
+                                var latObject = ((IJavaScriptExecutor)driver).ExecuteScript("return latti;");
+                                var lngObject = ((IJavaScriptExecutor)driver).ExecuteScript("return longi;");
+                                double lat = Convert.ToDouble(latObject);
+                                double lng = Convert.ToDouble(lngObject);
+
+                                // Detay bilgilerini al
+                                string name = driver.FindElement(By.XPath("//dt[contains(text(), 'Adı')]/following-sibling::dd")).Text;
+                                string phone = driver.FindElement(By.XPath("//dt[contains(text(), 'Telefon Numarası')]/following-sibling::dd")).Text;
+                                string address = driver.FindElement(By.XPath("//dt[contains(text(), 'Adresi')]/following-sibling::dd")).Text;
+                                _logger.LogInformation($"Eczane bilgileri alındı: {name}");
+
                                 pharmacies.Add(new Eczane
                                 {
                                     Name = name,
-                                    District = il, // İlçe bilgisi eğer harita sayfasında yoksa, Ana sayfadaki bilgilere göre düzeltilmeli
+                                    District = il,
                                     Phone = phone,
                                     Address = address,
                                     Latitude = lat.ToString(),
                                     Longitude = lng.ToString(),
                                     Date = tarih
                                 });
-                            }
 
-                            driver.Navigate().Back();
-                            wait.Until(d => d.FindElement(By.CssSelector("table tbody")));
+                                driver.Navigate().Back();
+                                wait.Until(d => d.FindElement(By.CssSelector("table tbody")));
+                            }
+                            catch (NoSuchElementException ex)
+                            {
+                                _logger.LogWarning($"Element bulunamadı: {ex.Message}");
+                            }
                         }
-                        catch (NoSuchElementException ex)
-                        {
-                            _logger.LogWarning($"Element bulunamadı: {ex.Message}");
-                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"{il} ili için nöbetçi eczane bulunamadı.");
                     }
 
                     // JSON olarak kaydet
